@@ -1,0 +1,13 @@
+gradle.beforeProject { p ->
+    p.plugins.withId('com.android.library') {
+        p.android.defaultConfig.externalNativeBuild.cmake.arguments.addAll([
+            '-DCMAKE_JOB_POOLS=compile=2', '-DCMAKE_JOB_POOL_COMPILE=compile'
+        ])
+    }
+    p.afterEvaluate {
+        if (p.path == ':MapLibreAndroid') {
+            p.version = System.getenv('SDK_VERSION')
+            p.publishing.publications.configureEach { version = System.getenv('SDK_VERSION') }
+        }
+    }
+}

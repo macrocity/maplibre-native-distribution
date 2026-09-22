@@ -1,0 +1,85 @@
+name: Build Android SDK
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Full renderer source commit
+        required: true
+        default: 4bdc8a58c5dab7e76af75effff7661437e314486
+      version:
+        description: Maven version
+        required: true
+        default: 13.6.1-macrocity.1
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, x86_64, armeabi-v7a, x86]
+    env:
+      SOURCE_REVISION: ${{ inputs.revision }}
+      SDK_VERSION: ${{ inputs.version }}
+      SDK_ABI: ${{ matrix.abi }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate inputs
+        run: |
+          [[ "$SOURCE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$SDK_VERSION" =~ ^[0-9A-Za-z.-]+$ ]]
+      - uses: actions/checkout@v4
+        with:
+          repository: macrocity/maplibre-native
+          ref: ${{ inputs.revision }}
+          path: .local/source
+          persist-credentials: false
+      - name: Initialize native dependencies
+        working-directory: .local/source
+        run: |
+          git submodule update --init --recursive --depth 1 -- $(git config --file .gitmodules --get-regexp path | awk '{print $2}' | grep '^vendor/' | grep -v '^vendor/wgpu-native$')
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install native build tools
+        run: |
+          sdkmanager 'ndk;28.2.13676358' 'platforms;android-34'
+          echo "cmake.dir=$(dirname "$(dirname "$(command -v cmake)")")" >> .local/source/platform/android/local.properties
+      - name: Build Maven publication
+        working-directory: .local/source/platform/android
+        run: |
+          ./gradlew --no-daemon --max-workers=2 \
+            --init-script "$GITHUB_WORKSPACE/android-publication.gradle" \
+            -Dorg.gradle.jvmargs=-Xmx3072m \
+            -Pmaplibre.abis="$SDK_ABI" \
+            -PpublicationRepositoryUrl="file://$GITHUB_WORKSPACE/.local/maven" \
+            :MapLibreAndroid:publishOpenglreleasePublicationToConfiguredRepository
+          cp ../../LICENSE.md ../../LICENSES.core.md "$GITHUB_WORKSPACE/.local/maven/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-${{ matrix.abi }}
+          path: .local/maven
+          retention-days: 7
+          if-no-files-found: error
+  package:
+    needs: build
+    runs-on: ubuntu-24.04
+    env:
+      SOURCE_REVISION: ${{ inputs.revision }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: android-*
+          path: .local/architectures
+      - run: python3 merge-android.py .local/architectures .local/release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-maven
+          path: .local/release/android-maven.zip
+          retention-days: 30
+          if-no-files-found: error
