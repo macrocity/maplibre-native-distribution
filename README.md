@@ -1,3 +1,3 @@
 Macrocity globe SDK binary distribution.
 
-Renderer source: https://github.com/macrocity/maplibre-native/tree/c9f2f6e1b9ee198f7938a54c0864676587476edd
+Renderer source: https://github.com/macrocity/maplibre-native/tree/c5a88b70e77db467f1e114affda97c57e71e8323
