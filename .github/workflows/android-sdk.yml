@@ -61,10 +61,26 @@ jobs:
             -PpublicationRepositoryUrl="file://$GITHUB_WORKSPACE/.local/maven" \
             :MapLibreAndroid:publishOpenglreleasePublicationToConfiguredRepository
           cp ../../LICENSE.md ../../LICENSES.core.md "$GITHUB_WORKSPACE/.local/maven/"
+      # The SDK ships libmaplibre.so stripped. Keep the unstripped library of the same build: a crash
+      # reporter reads files and lines from it (merge-android.py checks that the two match).
+      - name: Keep the unstripped native library
+        working-directory: .local/source/platform/android
+        run: |
+          libraries=(MapLibreAndroid/build/intermediates/merged_native_libs/openglRelease/*/out/lib/"$SDK_ABI"/libmaplibre.so)
+          [ "${#libraries[@]}" -eq 1 ] && [ -f "${libraries[0]}" ] || { echo "::error::expected one unstripped libmaplibre.so for $SDK_ABI: ${libraries[*]}"; exit 1; }
+          mkdir -p "$GITHUB_WORKSPACE/.local/symbols/$SDK_ABI"
+          cp "${libraries[0]}" "$GITHUB_WORKSPACE/.local/symbols/$SDK_ABI/"
+          file "$GITHUB_WORKSPACE/.local/symbols/$SDK_ABI/libmaplibre.so"
       - uses: actions/upload-artifact@v4
         with:
           name: android-${{ matrix.abi }}
           path: .local/maven
+          retention-days: 7
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-symbols-${{ matrix.abi }}
+          path: .local/symbols
           retention-days: 7
           if-no-files-found: error
   package:
@@ -83,5 +99,11 @@ jobs:
         with:
           name: android-maven
           path: .local/release/android-maven.zip
+          retention-days: 30
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-native-symbols
+          path: .local/release/android-native-symbols.zip
           retention-days: 30
           if-no-files-found: error
