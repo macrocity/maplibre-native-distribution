@@ -1,14 +1,14 @@
 // swift-tools-version:5.3
 import PackageDescription
 
-// Renderer source: c875c548eef3154dfabbfbc7459e650ab96baf9d
+// Renderer source: 152ccaf04df8f28643a7f358b7920f8377474d95
 let package = Package(
     name: "MapLibre Native",
     platforms: [.iOS("15.5")],
     products: [.library(name: "MapLibre", targets: ["MapLibre"])],
     targets: [.binaryTarget(
         name: "MapLibre",
-        url: "https://github.com/macrocity/maplibre-native/releases/download/macrocity-globe-c875c548-v1/MapLibre.xcframework.zip",
-        checksum: "f1fb5533a21a1bca2b520204e73bf730221914de10a87ddbf28b2c2a29c5d8bc"
+        url: "https://github.com/macrocity/maplibre-native/releases/download/macrocity-globe-152ccaf0-v1/MapLibre.xcframework.zip",
+        checksum: "368662ef7d5556c255ce58fad1e07be20cadb5017a3635823d17b010a95abe51"
     )]
 )
