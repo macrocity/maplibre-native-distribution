@@ -1,0 +1,55 @@
+name: Build iOS SDK
+# Builds the Metal XCFramework of a renderer revision with Bazel, as `scripts/maplibre/build-sdk.sh ios` of
+# macrocity/app does locally, and packages it with its dSYMs (package-ios.py). Publishing stays a manual step.
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Full renderer source commit
+        required: true
+  push:
+    branches: ['ios-sdk/**']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pick the revision
+        run: |
+          revision="${{ inputs.revision }}"
+          [ -n "$revision" ] || revision="$(cat ios-sdk-revision)"
+          [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+          echo "SOURCE_REVISION=$revision" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          repository: macrocity/maplibre-native
+          ref: ${{ env.SOURCE_REVISION }}
+          path: .local/source
+          persist-credentials: false
+      - name: Initialize native dependencies
+        working-directory: .local/source
+        run: |
+          git submodule update --init --recursive --depth 1 -- $(git config --file .gitmodules --get-regexp path | awk '{print $2}' | grep '^vendor/' | grep -v '^vendor/wgpu-native$')
+      - uses: bazel-contrib/setup-bazel@c5acdfb288317d0b5c0bbd7a396a3dc868bb0f86 # 0.19.0
+        with:
+          bazelisk-cache: true
+          repository-cache: true
+      - name: Build the XCFramework and its dSYMs
+        working-directory: .local/source
+        run: |
+          bazel build //platform/ios:MapLibre.dynamic --//:renderer=metal --compilation_mode=opt \
+            --apple_generate_dsym --output_groups=+dsyms
+          bin="$(bazel info --compilation_mode=opt bazel-bin)"
+          echo "XCFRAMEWORK=$bin/platform/ios/MapLibre.dynamic.xcframework.zip" >> "$GITHUB_ENV"
+          echo "DSYMS=$bin/platform/ios/MapLibre.dynamic_dsyms" >> "$GITHUB_ENV"
+      - name: Package
+        run: python3 package-ios.py .local/source "$XCFRAMEWORK" "$DSYMS" .local/release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-sdk
+          path: .local/release
+          retention-days: 30
+          if-no-files-found: error
