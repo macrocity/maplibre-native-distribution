@@ -1,6 +1,6 @@
 Macrocity globe SDK binary distribution.
 
-Renderer source: https://github.com/macrocity/maplibre-native/tree/9b051a164173ac39493338ffd15392414c151ae2
+Renderer source: https://github.com/macrocity/maplibre-native/tree/e4be05b5e6c0488b2b8935ecbe67e14bad227ae0
 
 ## Android SDK build
 
