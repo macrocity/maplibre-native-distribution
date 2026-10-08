@@ -26,8 +26,8 @@ test('only completed SDK workflow files older than 24 hours enter the archive pl
   assert.deepEqual(plan.keep.map(a => a.id), [3, 4, 5, 6, 7, 8, 10]);
 });
 
-function fixture({ corrupt = false, failUpload = false, failReceipt = false, rerun = false, existing = false, publicArchive = false } = {}) {
-  const files = [artifact(1), artifact(2, 'unmanaged')];
+function fixture({ corrupt = false, failUpload = false, failReceipt = false, rerun = false, existing = false, publicArchive = false, extraArtifact = false, failFirstUpload = false } = {}) {
+  const files = [artifact(1), artifact(2, extraArtifact ? 'android-maven' : 'unmanaged')];
   const calls = [];
   const assets = new Map();
   const original = Buffer.from('original exact SDK ZIP bytes');
@@ -41,6 +41,7 @@ function fixture({ corrupt = false, failUpload = false, failReceipt = false, rer
     assert.equal(options.headers.authorization, 'Bearer test-only');
     if (route === '') return Response.json({ private: !publicArchive });
     if (route === '/actions/artifacts') return Response.json({ artifacts: files });
+    if (route === '/actions/runs/2') return Response.json(run(2));
     if (route === '/actions/runs/1') {
       reads++;
       return Response.json(run(1, rerun && reads >= 3 ? { status: 'in_progress' } : {}));
@@ -48,19 +49,19 @@ function fixture({ corrupt = false, failUpload = false, failReceipt = false, rer
     if (route.startsWith('/releases/tags/')) return existing ? Response.json({ id: 5, upload_url: 'https://api.github.com/upload{?name,label}' }) : Response.json({}, { status: 404 });
     if (route === '/releases') {
       const body = JSON.parse(options.body);
-      assert.equal(body.tag_name, 'ci-sdk-artifacts/sdk/run-1');
+      assert.match(body.tag_name, /^ci-sdk-artifacts\/sdk\/run-[12]$/);
       assert.equal(body.make_latest, 'false');
       assert.equal(body.target_commitish, undefined);
       return Response.json({ id: 5, upload_url: 'https://api.github.com/upload{?name,label}' });
     }
     if (route === '/releases/5/assets') return Response.json([...assets.keys()].map(info));
-    if (route === '/actions/artifacts/1/zip') {
+    if (/^\/actions\/artifacts\/[12]\/zip$/.test(route)) {
       assert.equal(options.headers.accept, 'application/vnd.github+json');
       return new Response(original);
     }
     if (route === '/upload') {
       const name = parsed.searchParams.get('name');
-      if (failUpload || (failReceipt && name.endsWith('.json'))) return new Response('unavailable', { status: 503 });
+      if (failUpload || (failFirstUpload && name.startsWith('1-')) || (failReceipt && name.endsWith('.json'))) return new Response('unavailable', { status: 503 });
       assets.set(name, options.body);
       return Response.json(info(name));
     }
@@ -68,8 +69,8 @@ function fixture({ corrupt = false, failUpload = false, failReceipt = false, rer
       const name = route.slice('/releases/assets/'.length);
       return new Response(corrupt ? Buffer.alloc(assets.get(name).length, 'x') : assets.get(name));
     }
-    if (route === '/actions/artifacts/1' && options.method === 'DELETE') {
-      files.splice(0, 1);
+    if (/^\/actions\/artifacts\/[12]$/.test(route) && options.method === 'DELETE') {
+      files.splice(files.findIndex(a => a.id === Number(route.split('/').at(-1))), 1);
       return new Response(null, { status: 204 });
     }
     throw new Error(`Unexpected ${options.method} ${url}`);
@@ -128,9 +129,31 @@ test('pagination includes artifacts after the first 100', async () => {
   assert.equal(requests, 2);
 });
 
- test('public archive repository is rejected before any write or deletion', async () => {
+test('public archive repository is rejected before any write or deletion', async () => {
   const f = fixture({ publicArchive: true });
   await assert.rejects(f.client.clean({ apply: true, now, log() {} }), /must be private/);
   assert.ok(f.calls.every(c => c.method === 'GET'));
   assert.equal(f.files.length, 2);
+});
+
+test('one failed archive does not block cleanup of another artifact', async () => {
+  const f = fixture({ extraArtifact: true, failFirstUpload: true });
+  await assert.rejects(f.client.clean({ apply: true, now, log() {} }), /1 artifacts retained/);
+  assert.deepEqual(f.files.map(a => a.id), [1]);
+  assert.ok(f.assets.has('2-android-maven.zip.json'));
+});
+
+test('source and private archive APIs use separate credentials', async () => {
+  const client = new GitHubStorage({ repository: 'test/sdk', token: 'source-only',
+    archiveRepository: 'test/private', archiveToken: 'archive-only', request: async (url, options) => {
+      if (url === 'https://api.github.com/repos/test/private') {
+        assert.equal(options.headers.authorization, 'Bearer archive-only');
+        return Response.json({ private: true });
+      }
+      assert.ok(url.startsWith('https://api.github.com/repos/test/sdk/actions/artifacts?'));
+      assert.equal(options.headers.authorization, 'Bearer source-only');
+      return Response.json({ artifacts: [] });
+    } });
+  const report = await client.clean({ apply: true, now, log() {} });
+  assert.equal(report.deleted_count, 0);
 });
