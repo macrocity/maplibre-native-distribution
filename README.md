@@ -21,7 +21,8 @@ info and the build ID of the stripped one in the SDK. Both archives go to the sa
 
 The separate **Actions storage cleanup** workflow runs hourly and after SDK builds.
 It keeps artifacts while their workflow runs, and for 24 hours after completion.
-It then moves known SDK artifacts to private releases named `ci-artifacts/run-<run-id>`.
+It then moves known SDK artifacts to private releases in `macrocity/app` named
+`ci-sdk-artifacts/maplibre-native-distribution/run-<run-id>`.
 Unknown artifact names and unrelated workflows remain untouched.
 
 The cleanup copies every original artifact ZIP, including intermediate ABI files,
@@ -45,8 +46,8 @@ or cleanup log. This example restores the Android symbols from workflow run
 
 ```sh
 mkdir -p .local/sdk-recovery
-gh release download ci-artifacts/run-37319040943 \
-  --repo macrocity/maplibre-native-distribution \
+gh release download ci-sdk-artifacts/maplibre-native-distribution/run-37319040943 \
+  --repo macrocity/app \
   --pattern '11351000513-android-native-symbols.zip*' --dir .local/sdk-recovery
 python3 - <<'PY'
 import hashlib, json, pathlib
@@ -63,6 +64,10 @@ An Actions artifact ZIP wraps the build output. The restored directory therefore
 contains the original `android-native-symbols.zip`. For `ios-sdk`, it contains the
 XCFramework and dSYM archives. Extract those files as usual. Do not rebuild a
 historical SDK to replace its symbols: native build IDs must match the shipped SDK.
+
+The workflow uses `ACTIONS_ARCHIVE_TOKEN` only for the private archive repository.
+Its regular workflow token reads and deletes this repository's Actions artifacts.
+The script rejects a public archive repository before any archive or deletion.
 
 The script uses Node 22 with no package dependencies. Local checks and preview:
 

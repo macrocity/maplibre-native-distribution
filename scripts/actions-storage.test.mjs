@@ -26,7 +26,7 @@ test('only completed SDK workflow files older than 24 hours enter the archive pl
   assert.deepEqual(plan.keep.map(a => a.id), [3, 4, 5, 6, 7, 8, 10]);
 });
 
-function fixture({ corrupt = false, failUpload = false, failReceipt = false, rerun = false, existing = false } = {}) {
+function fixture({ corrupt = false, failUpload = false, failReceipt = false, rerun = false, existing = false, publicArchive = false } = {}) {
   const files = [artifact(1), artifact(2, 'unmanaged')];
   const calls = [];
   const assets = new Map();
@@ -39,6 +39,7 @@ function fixture({ corrupt = false, failUpload = false, failReceipt = false, rer
     const route = decodeURIComponent(parsed.pathname.replace('/repos/test/sdk', ''));
     calls.push({ route, method: options.method });
     assert.equal(options.headers.authorization, 'Bearer test-only');
+    if (route === '') return Response.json({ private: !publicArchive });
     if (route === '/actions/artifacts') return Response.json({ artifacts: files });
     if (route === '/actions/runs/1') {
       reads++;
@@ -47,7 +48,7 @@ function fixture({ corrupt = false, failUpload = false, failReceipt = false, rer
     if (route.startsWith('/releases/tags/')) return existing ? Response.json({ id: 5, upload_url: 'https://api.github.com/upload{?name,label}' }) : Response.json({}, { status: 404 });
     if (route === '/releases') {
       const body = JSON.parse(options.body);
-      assert.equal(body.tag_name, 'ci-artifacts/run-1');
+      assert.equal(body.tag_name, 'ci-sdk-artifacts/sdk/run-1');
       assert.equal(body.make_latest, 'false');
       assert.equal(body.target_commitish, undefined);
       return Response.json({ id: 5, upload_url: 'https://api.github.com/upload{?name,label}' });
@@ -125,4 +126,11 @@ test('pagination includes artifacts after the first 100', async () => {
   const report = await client.clean({ now, log() {} });
   assert.equal(report.keep_count, 101);
   assert.equal(requests, 2);
+});
+
+ test('public archive repository is rejected before any write or deletion', async () => {
+  const f = fixture({ publicArchive: true });
+  await assert.rejects(f.client.clean({ apply: true, now, log() {} }), /must be private/);
+  assert.ok(f.calls.every(c => c.method === 'GET'));
+  assert.equal(f.files.length, 2);
 });

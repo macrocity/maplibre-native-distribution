@@ -20,12 +20,15 @@ export function cleanupPlan(artifacts, runs, now = Date.now()) {
 }
 
 export class GitHubStorage {
-  constructor({ repository, token, apiUrl = 'https://api.github.com', request = fetch }) {
+  constructor({ repository, token, archiveRepository, archiveToken, apiUrl = 'https://api.github.com', request = fetch }) {
     if (!repository || !token) throw new Error('GITHUB_REPOSITORY and GITHUB_TOKEN are required');
+    this.repository = repository;
     this.base = `${apiUrl}/repos/${repository}`;
     this.token = token;
     this.request = request;
     this.releases = new Map();
+    this.archiveStorage = archiveRepository
+      ? new GitHubStorage({ repository: archiveRepository, token: archiveToken, apiUrl, request }) : this;
   }
 
   async api(method, route, body, { binary = false, missing = false, accept } = {}) {
@@ -105,17 +108,21 @@ export class GitHubStorage {
   }
 
   async archive(artifact) {
-    const tag = `ci-artifacts/run-${artifact.workflow_run.id}`;
+    const tag = `ci-sdk-artifacts/${this.repository.split("/")[1]}/run-${artifact.workflow_run.id}`;
     const name = `${artifact.id}-${artifact.name}.zip`;
     const original = await this.api('GET', `/actions/artifacts/${artifact.id}/zip`, null,
       { binary: true, accept: 'application/vnd.github+json' });
-    const copy = await this.publishFile(tag, name, original);
+    const copy = await this.archiveStorage.publishFile(tag, name, original);
     const receipt = Buffer.from(JSON.stringify({ schema: 1, artifact, archive: copy }, null, 2) + '\n');
-    await this.publishFile(tag, `${name}.json`, receipt);
+    await this.archiveStorage.publishFile(tag, `${name}.json`, receipt);
     return copy;
   }
 
   async clean({ apply = false, log = console.log, now = Date.now() } = {}) {
+    if (apply) {
+      const archiveRepo = await this.archiveStorage.api('GET', '');
+      if (archiveRepo.private !== true) throw new Error('Archive repository must be private');
+    }
     const artifacts = await this.pages('/actions/artifacts', 'artifacts');
     const runs = new Map();
     for (const artifact of artifacts.filter(a => !a.expired && managedName.test(a.name))) {
@@ -169,6 +176,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   try {
     await new GitHubStorage({ repository: process.env.GITHUB_REPOSITORY,
       token: process.env.GITHUB_TOKEN || process.env.GH_TOKEN,
+      archiveRepository: process.env.ARTIFACT_ARCHIVE_REPOSITORY,
+      archiveToken: process.env.ARTIFACT_ARCHIVE_TOKEN,
       apiUrl: process.env.GITHUB_API_URL }).clean({ apply: args[0] === '--apply' });
   } catch (error) {
     console.error(error.message);

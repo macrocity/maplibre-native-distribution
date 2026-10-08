@@ -59,6 +59,8 @@ jobs:
       - name: Archive verified SDK files and remove Actions copies
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          ARTIFACT_ARCHIVE_REPOSITORY: macrocity/app
+          ARTIFACT_ARCHIVE_TOKEN: ${{ secrets.ACTIONS_ARCHIVE_TOKEN }}
           APPLY: ${{ github.event_name != 'workflow_dispatch' || inputs.apply }}
         run: |
           mode=--dry-run
