@@ -1,0 +1,68 @@
+name: Actions storage cleanup
+
+on:
+  schedule:
+    - cron: '27 * * * *'
+  workflow_run:
+    workflows: [Build Android SDK, Build iOS SDK]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Archive and delete artifacts (false previews the plan)
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/actions-storage.yml
+      - scripts/actions-storage.mjs
+      - scripts/actions-storage.test.mjs
+  pull_request:
+    paths:
+      - .github/workflows/actions-storage.yml
+      - scripts/actions-storage.mjs
+      - scripts/actions-storage.test.mjs
+
+concurrency:
+  group: actions-storage-${{ github.event_name == 'pull_request' && github.event.pull_request.number || 'cleanup' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test scripts/actions-storage.test.mjs
+
+  cleanup:
+    if: github.event_name != 'pull_request'
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      actions: write
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Archive verified SDK files and remove Actions copies
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ARTIFACT_ARCHIVE_REPOSITORY: macrocity/app
+          ARTIFACT_ARCHIVE_TOKEN: ${{ secrets.ACTIONS_ARCHIVE_TOKEN }}
+          APPLY: ${{ github.event_name != 'workflow_dispatch' || inputs.apply }}
+        run: |
+          mode=--dry-run
+          if [ "$APPLY" = true ]; then mode=--apply; fi
+          node scripts/actions-storage.mjs "$mode"
