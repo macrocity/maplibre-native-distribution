@@ -1,4 +1,4 @@
-name: Build Android SDK
+name: Build Android SDK Performance Candidate
 on:
   workflow_dispatch:
     inputs:
@@ -73,18 +73,18 @@ jobs:
           file "$GITHUB_WORKSPACE/.local/symbols/$SDK_ABI/libmaplibre.so"
       - uses: actions/upload-artifact@v4
         with:
-          name: android-${{ matrix.abi }}
+          name: perf-android-${{ matrix.abi }}
           path: .local/maven
-          retention-days: 7
+          retention-days: 1
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
-          name: android-symbols-${{ matrix.abi }}
+          name: perf-android-symbols-${{ matrix.abi }}
           path: .local/symbols
-          retention-days: 7
+          retention-days: 1
           if-no-files-found: error
   package:
-    needs: build
+    needs: [build, native-tests]
     runs-on: ubuntu-24.04
     env:
       SOURCE_REVISION: ${{ inputs.revision }}
@@ -92,18 +92,50 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          pattern: android-*
+          pattern: perf-android-*
           path: .local/architectures
-      - run: python3 merge-android.py .local/architectures .local/release
+      - name: Restore the packager's ABI directory names
+        run: |
+          for abi in arm64-v8a x86_64 armeabi-v7a x86; do
+            mv ".local/architectures/perf-android-$abi" ".local/architectures/android-$abi"
+            mv ".local/architectures/perf-android-symbols-$abi" ".local/architectures/android-symbols-$abi"
+          done
+          python3 merge-android.py .local/architectures .local/release
       - uses: actions/upload-artifact@v4
         with:
-          name: android-maven
+          name: perf-android-maven
           path: .local/release/android-maven.zip
-          retention-days: 30
+          retention-days: 1
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
-          name: android-native-symbols
+          name: perf-android-native-symbols
           path: .local/release/android-native-symbols.zip
-          retention-days: 30
+          retention-days: 1
           if-no-files-found: error
+
+  native-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      EGL_PLATFORM: surfaceless
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: macrocity/maplibre-native
+          ref: ${{ inputs.revision }}
+          persist-credentials: false
+      - name: Initialize native dependencies
+        run: |
+          git submodule update --init --recursive --depth 1 -- $(git config --file .gitmodules --get-regexp path | awk '{print $2}' | grep '^vendor/' | grep -v '^vendor/wgpu-native$')
+      - name: Install headless OpenGL test dependencies
+        run: |
+          .github/scripts/install-linux-deps
+          sudo apt-get install -y ninja-build ccache xvfb libegl1-mesa-dev libgl1-mesa-dev libwayland-dev wayland-protocols libxkbcommon-dev
+      - name: Compile maintained SDK OpenGL tests
+        run: |
+          cmake --preset linux-opengl -DMLN_WITH_CLANG_TIDY=OFF
+          cmake --build build-linux-opengl --target mbgl-test-runner --parallel 2
+      - name: Run production-cache and existing buffer/custom-layer tests
+        run: |
+          xvfb-run -a build-linux-opengl/mbgl-test-runner --gtest_filter='VertexArrayBindingCache.*:Buckets.*:CustomLayer.*'
