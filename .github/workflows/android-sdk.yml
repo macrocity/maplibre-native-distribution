@@ -1,4 +1,4 @@
-name: Build Android SDK Performance Candidate
+name: Build Android SDK Guest ANGLE Drawable Experiment
 on:
   workflow_dispatch:
     inputs:
@@ -135,7 +135,8 @@ jobs:
       - name: Compile maintained SDK OpenGL tests
         run: |
           cmake --preset linux-opengl -DMLN_WITH_CLANG_TIDY=OFF
+          cmake --build build-linux-opengl --target test/CMakeFiles/mbgl-test.dir/renderer/android_emulator_render_policy.test.cpp.o --parallel 2
           cmake --build build-linux-opengl --target mbgl-test-runner --parallel 2
-      - name: Run production-cache and existing buffer/custom-layer tests
+      - name: Run Guest ANGLE policy/pixels and existing buffer/custom-layer tests
         run: |
-          xvfb-run -a build-linux-opengl/mbgl-test-runner --gtest_filter='VertexArrayBindingCache.*:Buckets.*:CustomLayer.*'
+          xvfb-run -a build-linux-opengl/mbgl-test-runner --gtest_filter='VertexArrayBindingCache.*:Buckets.*:CustomLayer.*:GuestAngleDrawableReuse.*:Source.*:TileCache.*'
