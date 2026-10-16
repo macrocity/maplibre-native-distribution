@@ -1,15 +1,15 @@
-name: Build Android SDK Guest ANGLE Drawable Experiment
+name: Build Android SDK Renderer Lifecycle Performance Candidate
 on:
   workflow_dispatch:
     inputs:
       revision:
         description: Full renderer source commit
         required: true
-        default: 4bdc8a58c5dab7e76af75effff7661437e314486
+        default: 704dd4c299e8e253bbbe6faa67fee81aeff42dcb
       version:
         description: Maven version
         required: true
-        default: 13.6.1-macrocity.1
+        default: 13.6.1-perf-20261016-lifecycle-control
 permissions:
   contents: read
 jobs:
@@ -29,7 +29,7 @@ jobs:
       - name: Validate inputs
         run: |
           [[ "$SOURCE_REVISION" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$SDK_VERSION" =~ ^[0-9A-Za-z.-]+$ ]]
+          [[ "$SDK_VERSION" =~ ^13\.6\.1-perf-[0-9A-Za-z.-]+$ ]]
       - uses: actions/checkout@v4
         with:
           repository: macrocity/maplibre-native
@@ -135,8 +135,13 @@ jobs:
       - name: Compile maintained SDK OpenGL tests
         run: |
           cmake --preset linux-opengl -DMLN_WITH_CLANG_TIDY=OFF
+          # Compile new test objects first; catch source/API mistakes before the full SDK runner.
+          cmake --build build-linux-opengl --target test/CMakeFiles/mbgl-test.dir/renderer/android_renderer_actor.test.cpp.o --parallel 2
           cmake --build build-linux-opengl --target test/CMakeFiles/mbgl-test.dir/renderer/android_emulator_render_policy.test.cpp.o --parallel 2
+          if [ -f test/tile/inactive_tile_cache.test.cpp ]; then
+            cmake --build build-linux-opengl --target test/CMakeFiles/mbgl-test.dir/tile/inactive_tile_cache.test.cpp.o --parallel 2
+          fi
           cmake --build build-linux-opengl --target mbgl-test-runner --parallel 2
-      - name: Run Guest ANGLE policy/pixels and existing buffer/custom-layer tests
+      - name: Run renderer lifecycle, actor, Guest ANGLE and bounded tile-cache regressions
         run: |
-          xvfb-run -a build-linux-opengl/mbgl-test-runner --gtest_filter='VertexArrayBindingCache.*:Buckets.*:CustomLayer.*:GuestAngleDrawableReuse.*:Source.*:TileCache.*'
+          timeout --signal=TERM --kill-after=10s 240s xvfb-run -a build-linux-opengl/mbgl-test-runner --gtest_filter='AndroidRendererActor.*:Actor.*:VertexArrayBindingCache.*:Buckets.*:CustomLayer.*:GuestAngleDrawableReuse.*:InactiveTileCache.*:Source.*:TileCache.*:StyleDiff.*'
