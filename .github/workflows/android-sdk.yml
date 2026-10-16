@@ -1,15 +1,15 @@
-name: Build Android SDK Performance Candidate
+name: Build Android SDK Line Group Performance Candidate
 on:
   workflow_dispatch:
     inputs:
       revision:
         description: Full renderer source commit
         required: true
-        default: 4bdc8a58c5dab7e76af75effff7661437e314486
+        default: c6d613198e6e9d47886e93123b93ac9574710c73
       version:
         description: Maven version
         required: true
-        default: 13.6.1-macrocity.1
+        default: 13.6.1-perf-20261016-line-control
 permissions:
   contents: read
 jobs:
@@ -138,4 +138,4 @@ jobs:
           cmake --build build-linux-opengl --target mbgl-test-runner --parallel 2
       - name: Run production-cache and existing buffer/custom-layer tests
         run: |
-          xvfb-run -a build-linux-opengl/mbgl-test-runner --gtest_filter='VertexArrayBindingCache.*:Buckets.*:CustomLayer.*'
+          xvfb-run -a build-linux-opengl/mbgl-test-runner --gtest_filter='LineGrouping.*:VertexArrayBindingCache.*:Buckets.*:CustomLayer.*:Source.*:TileCache.*:StyleConversion.*:Filter.*'
