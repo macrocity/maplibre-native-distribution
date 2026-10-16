@@ -138,7 +138,7 @@ jobs:
           # Compile the new maintained test object first to catch API/include mistakes early.
           # Baseline refs without the new test skip only this preliminary object build.
           if [ -f test/renderer/line_grouping.test.cpp ]; then
-            test_object=$(ninja -C build-linux-opengl -t targets all | awk -F ': ' '/line_grouping.test.cpp.o:/ {print $1; exit}')
+            test_object=$(ninja -C build-linux-opengl -t targets all | awk -F ': ' '/line_grouping.test.cpp.o:/ && !found++ {print $1}')
             test -n "$test_object"
             cmake --build build-linux-opengl --target "$test_object" --parallel 2
           fi
