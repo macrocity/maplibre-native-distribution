@@ -5,7 +5,7 @@ on:
       revision:
         description: Full renderer source commit
         required: true
-        default: 704dd4c299e8e253bbbe6faa67fee81aeff42dcb
+        default: 9c2b89f836c6afc66fe2dea40fbd204e4a56d459
       version:
         description: Maven version
         required: true
@@ -119,6 +119,7 @@ jobs:
     timeout-minutes: 90
     env:
       EGL_PLATFORM: surfaceless
+      HOST_TEST_FILTER: AndroidRendererActor.*:Actor.*:VertexArrayBindingCache.*:Buckets.*:CustomLayer.*:GuestAngleDrawableReuse.*:InactiveTileCache.*:Source.*:TileCache.*
     steps:
       - uses: actions/checkout@v4
         with:
@@ -142,6 +143,28 @@ jobs:
             cmake --build build-linux-opengl --target test/CMakeFiles/mbgl-test.dir/tile/inactive_tile_cache.test.cpp.o --parallel 2
           fi
           cmake --build build-linux-opengl --target mbgl-test-runner --parallel 2
+      - name: Verify mandatory test registration
+        run: |
+          xvfb-run -a build-linux-opengl/mbgl-test-runner --gtest_list_tests --gtest_filter="$HOST_TEST_FILTER" > build-linux-opengl/perf-registered-tests.txt
+          python3 - <<'PYTESTS'
+          import json
+          from pathlib import Path
+          counts = {}
+          suite = None
+          for raw in Path('build-linux-opengl/perf-registered-tests.txt').read_text().splitlines():
+              line = raw.split('#', 1)[0].rstrip()
+              if line and not line[0].isspace() and line.endswith('.'):
+                  suite = line[:-1]
+              elif line.startswith('  ') and line.strip() and suite:
+                  counts[suite] = counts.get(suite, 0) + 1
+          required = {'AndroidRendererActor': 7, 'GuestAngleDrawableReuse': 6,
+                      'InactiveTileCache': 5 if Path('test/tile/inactive_tile_cache.test.cpp').is_file() else 0}
+          for suite, expected in required.items():
+              assert counts.get(suite, 0) == expected, (suite, expected, counts)
+          for suite in ['Actor', 'VertexArrayBindingCache', 'Buckets', 'CustomLayer', 'Source', 'TileCache']:
+              assert counts.get(suite, 0) > 0, (suite, counts)
+          print(json.dumps({'mandatory_registration': 'passed', 'suite_counts': counts}, sort_keys=True))
+          PYTESTS
       - name: Run renderer lifecycle, actor, Guest ANGLE and bounded tile-cache regressions
         run: |
-          timeout --signal=TERM --kill-after=10s 240s xvfb-run -a build-linux-opengl/mbgl-test-runner --gtest_filter='AndroidRendererActor.*:Actor.*:VertexArrayBindingCache.*:Buckets.*:CustomLayer.*:GuestAngleDrawableReuse.*:InactiveTileCache.*:Source.*:TileCache.*:StyleDiff.*'
+          timeout --signal=TERM --kill-after=10s 240s xvfb-run -a build-linux-opengl/mbgl-test-runner --gtest_filter="$HOST_TEST_FILTER"
